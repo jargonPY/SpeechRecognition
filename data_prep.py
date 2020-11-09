@@ -1,23 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from matplotlib import cm
-import sounddevice as sd
-import scipy.io.wavfile as wavefile
 from scipy.signal import spectrogram
-import time
 from scipy.signal import butter, lfilter, freqz, firwin
-
-"""
-fs = 44100
-t = 4
-print("Recording Now")
-data = sd.rec(frames=t * fs, samplerate=44100, channels=2, blocking=True)
-print("Recording Stopped")
-print(data)
-sd.play(data, fs, blocking=True)
-wavefile.write('./data.wav', fs, data)
-"""
 
 class SplitSentence():
 
@@ -103,10 +87,7 @@ class SplitSentence():
         convolve = [ ]
         for i in range(0, len(signal) - 2 * self.win_size, self.win_size):
             conv = np.absolute(np.convolve(signal[i:i + self.win_size], signal[i + self.win_size:i + 2 * self.win_size]))
-            mean = np.mean(conv)
-            if mean < 0.01:
-                mean = 0
-            convolve.append(mean)
+            convolve.append(np.mean(conv))
         return convolve
 
     def split_signal(self, param):
@@ -204,15 +185,4 @@ class SplitSentence():
         axs.set_xlabel('Time [sec]')
         axs.set_ylabel('Frequency [Hz]')
         plt.show()
-
-
-if __name__ == "__main__":
-    rate, signal = wavefile.read('./data.wav')
-    pre = SplitSentence(signal, win_size=300)
-    #new_sig, avg, std, split = split.single_filter(filter_type='smooth')
-    #new_sig, avg, std, split = pre.single_filter(1000, 4500, filter_type='bandpass')
-    #stats, split = pre.single_filter([1000, 4500], filter_type='bandpass')
-    #pre.single_filter_plot(stats, split)
     
-    filters = {'smooth':[], 'bandpass':[1000, 4500], 'butter':[1000, 4500]}
-    pre.multi_filter(filters)
