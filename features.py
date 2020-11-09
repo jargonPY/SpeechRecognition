@@ -2,10 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.fftpack as pack
 
-"""
-Would the spectrogram produce the same effect as windowing and then taking fft on each row?
-"""
-class Preprocess():
+class Features():
 
     def __init__(self, data, sample_rate, frame_size=0.025, frame_stride=0.01):
         
@@ -160,16 +157,3 @@ class Preprocess():
     def mel_to_hz(mel):
 
         return 700 * (np.exp(mel / 1125) - 1)
-
-
-def signal():
-    dt = 0.0000625
-    t = np.arange(0, 1, dt)
-    f = np.sin(2*np.pi*50*t) + np.sin(2*np.pi*120*t)
-    f += 2.5 * np.random.randn(len(t))
-    return f
-
-if __name__ == "__main__":
-    f = signal()
-    feat = Preprocess(f, 16000)
-    features = feat.get_features()
