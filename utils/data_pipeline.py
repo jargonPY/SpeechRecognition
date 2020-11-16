@@ -44,7 +44,7 @@ def prepare_data(dataset, batch_size=128):
 
 if __name__ == "__main__":
 
-    path = "/Users/elipalchik/Documents/Programming/python/Signals/"
+    path = "./data"
     text_file = " "
     # create a list of audio_files and a list of the corresponding text
     audio_files = load_data(path)
