@@ -88,11 +88,6 @@ class PreprocessAudio():
         return filter_banks
 
     def mfcc(self, filter_banks, num_ceps=12, norm=True):
-        """
-        To uncorrelate the features produced by the filter banks we take the discrete cosine transform
-        of the filter banks. We keep the first 12 features and discard the rest as they represent fast 
-        changes in the frequencies thereby making them less useful and meaningful features.
-        """
 
         mfcc = pack.dct(filter_banks, type=2, axis=1, norm='ortho')[:, 1 : (num_ceps + 1)] # Keep 2-13
         if norm:
