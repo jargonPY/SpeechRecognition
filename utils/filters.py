@@ -2,21 +2,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import spectrogram
 from scipy.signal import butter, lfilter, freqz, firwin
+from load_audio import load_audio
 
-class SplitSentence():
+class Filters():
 
-    def __init__(self, signal, fs=44100, win_size=300):
+    def __init__(self, file_name, fs=44100, win_size=300):
         
-        self.signal = signal[0:50000, 1]
+        self.fs, self.signal = load_audio(file_name)
         self.len = len(self.signal)
         self.win_size = win_size
-        self.fs = fs
-
-    def rolling_window(self, signal, window=256, shift=128):
-    
-        shape = signal.shape[:-1] + (int(signal.shape[-1] - window + 1), int(window))
-        strides = signal.strides + (signal.strides[-1],)
-        return np.lib.stride_tricks.as_strided(signal, shape=shape, strides=strides)[::shift]
 
     def normalize(self, signal):
 
@@ -185,4 +179,3 @@ class SplitSentence():
         axs.set_xlabel('Time [sec]')
         axs.set_ylabel('Frequency [Hz]')
         plt.show()
-    
