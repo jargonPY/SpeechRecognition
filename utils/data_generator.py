@@ -55,5 +55,4 @@ class DataGenerator(keras.utils.Sequence):
         indices = self.indices[index * self.batch_size : (index + 1) * self.batch_size]
         batch_ids = [self.list_ids[i] for i in indices]
         audio_input, text_input, text_output = self._generate_data(batch_ids)
-       # item = {"audio_in": audio_input, "text_in": text_input}, text_output
         return [audio_input, text_input], text_output
