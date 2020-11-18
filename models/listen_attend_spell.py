@@ -2,7 +2,7 @@ import numpy as np
 import string
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.layers import Input, Embedding, LSTM, Dense, TimeDistributed, Bidirectional, Concatenate
+from tensorflow.keras.layers import Input, Embedding, LSTM, Dense, Bidirectional, Concatenate
 
 """
 Review of LSTMs:
@@ -38,51 +38,60 @@ LSTM(dim, return_sequences=True, return_state=True) --> returns hidden state for
 
 class ListenAttendSpell():
 
-    def __init__(self, batch_size=64, epochs=128, hidden_dim=256):
+    def __init__(self, num_classes=26, max_sent_len=100, hidden_dim=256):
 
-        self.batch_size = batch_size
-        self.epochs = epochs
         self.hidden_dim = hidden_dim
+        self.num_classes = num_classes
+        self.max_sent_len = max_sent_len
 
-        self.num_tokens = 26
-        self.max_length = 100
-
-    def pBLSTM(self, input_tensor, name=''):
-
-        blstm = Bidirectional(LSTM(self.hidden_dim, return_sequences=True, name=name))
-        _, forward_h, back_h = blstm(input_tensor)
-       # state_c = Concatenate()([forward_c, back_c])
-        state_h = Concatenate()([forward_h, back_h])
-       # state_h = Concatenate()([state_h, state_h]) #### RESHAPE
+    def pBLSTM(self, input_tensor, name):
+        # if merge_mode = "concat" --> embed_h must be 2 * self.hidden_dim
+        blstm = Bidirectional(LSTM(self.hidden_dim, return_sequences=True), merge_mode="ave", name=name)
+        state_h = blstm(input_tensor)
+        # state_h = Concatenate()([state_h, state_h]) #### RESHAPE
         return state_h
 
-    def build_model(self, num_layers=3, embed_dim=256):
+    def encoder(self, num_layers=3):
 
         # Input is a 1D sequence consisting of the filter banks derived from the audio signal
-        enc_input = Input(shape=(None, 1))
-        enc_input = keras.layers.Masking(mask_value=0., input_shape=(None, 1))(enc_input)
+        encoder_input = Input(shape=(None, 1), name="encoder_input")
+        listen_h = keras.layers.Masking(mask_value=0., input_shape=(None, 1))(encoder_input)
 
         for i in range(num_layers):
-            if i == 0:
-                listen_h, listen_c = self.pBLSTM(enc_input, name=f"encoder_layer{i}")
+            if i == (num_layers - 1):
+                listen_h = self.pBLSTM(listen_h, name="encoder_output")
             else:
-                listen_h, listen_c = self.pBLSTM(listen_h, name=f"encoder_layer{i}")
-        
+                listen_h = self.pBLSTM(listen_h, name=f"encoder_layer{i}")
+
+        self.encoder_model = keras.models.Model(inputs=encoder_input, outputs=listen_h, name='Encoder')
+
+    def decoder(self, embed_dim=256):
+
         # Input is a 1D sequence consisting of the padded text sentence
-        dec_input = Input(shape=(self.max_length, 1))
-        embed = Embedding(self.num_tokens, embed_dim, input_length=self.max_length)(dec_input)
-        _, embed_h, embed_c = LSTM(self.hidden_dim, return_sequences=True)(embed)
+        decoder_input = Input(shape=(None, ), name="decoder_input")
+        encoder_output = Input(shape=(None, self.hidden_dim))
+        embed = Embedding(self.num_classes, embed_dim, mask_zero=True, name="dec_embed")(decoder_input)
+        embed_h = LSTM(self.hidden_dim, return_sequences=True, name="LSTM_embed")(embed)
         # inputs: (batch_size, Tq, dim) and (batch_size, Tv, dim) || output: (batch_size, Tq, dim)
-        attention = keras.layers.AdditiveAttention()([embed_h, listen_h])
+        attention = keras.layers.AdditiveAttention(name="attention")([embed_h, encoder_output])
 
-        _, state_h, state_c = LSTM(self.hidden_dim, return_sequences=True)(attention)
-        output = Dense(self.max_length, activation='softmax')(state_h)
+        state_h = LSTM(self.hidden_dim, return_sequences=True, name="LSTM_attend")(attention)
+        decoder_output = Dense(self.num_classes, activation='softmax', name="decoder_output")(state_h)
+    
+        self.decoder_model = keras.models.Model(inputs=[decoder_input, encoder_output], outputs=decoder_output, name='Decoder')
+    
+    def build_model(self):
 
-        model = keras.models.Model(inputs=[enc_input, dec_input], outputs=output)
+        input1 = Input(shape=(None, 1), name="input_1")
+        encoder_output = self.encoder_model(input1)
+        input2 = Input(shape=(None, ), name="input_2")
+        decoder_output = self.decoder_model([input2, encoder_output])
+
+        model = keras.Model(inputs=[input1 ,input2], outputs=decoder_output, name="LAS")
         model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
         self.model = model
 
-    def train(self, train_ds, val_ds, file_path, epochs=128):
+    def train(self, train_ds, val_ds, file_path, batch_size=128, epochs=128):
 
         earlystopping_cb = keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)
         mdlcheckpoint_cb = keras.callbacks.ModelCheckpoint(file_path, monitor="val_accuracy", save_best_only=True)
@@ -90,23 +99,45 @@ class ListenAttendSpell():
         self.model.fit(train_ds,
                        epochs=epochs,
                        validation_data=val_ds,
-                       callbacks=[earlystopping_cb, mdlcheckpoint_cb])
+                       callbacks=[earlystopping_cb, mdlcheckpoint_cb],
+                       verbose=1)
 
-    def save_model(self, file_path):
+    def inference(self, audio, token_to_index, index_to_token):
 
-        try:
-            self.model.save(file_path)
-        except Exception as e:
-            raise ValueError(e)
+        encoder_output = self.encoder_model.predict(audio)
 
+        # generate empty target sequence of length 1 with only the start character
+        target_seq = np.zeros((1, 1, self.num_classes))
+        target_seq[0, 0, token_to_index["<sos>"]] = 1.
+        
+        # output sequence loop
+        stop_condition = False
+        decoded_sentence = ''
+        while not stop_condition:
+            output_tokens, h, c = self.decoder_model.predict([target_seq] + encoder_output)
+            # sample a token and add the corresponding character to the 
+            # decoded sequence
+            sampled_token_index = np.argmax(output_tokens[0, -1, :])
+            sampled_char = index_to_token[sampled_token_index]
+            decoded_sentence += sampled_char
+            
+            # check for the exit condition: either hitting max length
+            # or predicting the 'stop' character
+            if (sampled_char == "<eos>" or len(decoded_sentence) > self.max_sent_len):
+                stop_condition = True
+            
+            # update the target sequence (length 1).
+            target_seq = np.zeros((1, 1, self.num_classes))
+            target_seq[0, 0, sampled_token_index] = 1.
+            
+            # update states
+            encoder_output = [h, c]
+            
+        return decoded_sentence
+    
     def load_model(self, file_path):
 
         try:
             self.model = keras.models.load_model(file_path)
         except Exception as e:
             raise ValueError(e)
-
-
-model = ListenAttendSpell()
-model.build_model()
-model.model.summary()

@@ -1,7 +1,7 @@
 import os
 import numpy as np
-from preprocess_audio import PreprocessAudio
-from preprocess_text import PreprocessText
+from utils.preprocess_audio import PreprocessAudio
+from utils.preprocess_text import PreprocessText
 
 def move_files(path):
 
@@ -31,38 +31,35 @@ def create_single_text(path):
     if not os.path.isdir(new_path):
         os.mkdir(new_path)
 
+    files_to_delete = [ ]
     with open(new_path + "/all_text.txt", "w") as f:
-        for file in os.listdir(path + "/text_files"):
-            with open(path + "/text_files/" + file) as read_file:
-                line = read_file.readline().split()
+        for filename in os.listdir(path + "/text_files"):
+            with open(path + "/text_files/" + filename) as read_file:
+                line = read_file.readline()
+                if ";" in line:
+                    files_to_delete.append(filename.split(".")[0])
+                    continue
+                line = line.split()
                 new_line = " "
                 new_line = new_line.join(line[2:])
                 f.write(new_line + "\n")
-                #f.writelines(lines for line in read_file)
-
-def create_audio_features(path):
+    return files_to_delete
+                
+def create_audio_features(path, files_to_delete):
 
     new_path = path + "/audio_train"
     if not os.path.isdir(new_path):
         os.mkdir(new_path)
 
     for filename in os.listdir(path + "/audio_files"):
+        if filename.split(".")[0] in files_to_delete:
+            continue
         pre = PreprocessAudio(path + "/audio_files/" + filename)
         filter_banks = pre.get_filter_banks().flatten()
         np.save(new_path + f"/{filename}", filter_banks)
 
-def create_text_features(path):
-
-    path = path + "/text_train/all_text.txt"
-    if os.path.isfile(path):
-        pre = PreprocessText(path)
-        pre.process_text()
-    else:
-        raise ValueError("File does not exist")
-
 if __name__ == "__main__":
     path = "./data"
     move_files(path)
-    create_single_text(path)
-    create_audio_features(path)
-    create_text_features(path)
+    files_to_delete = create_single_text(path)
+    create_audio_features(path, files_to_delete)
