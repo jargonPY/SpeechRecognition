@@ -8,25 +8,6 @@ from tensorflow.keras.layers import Input, Embedding, LSTM, Dense, Bidirectional
 Review of LSTMs:
 
 Input: (num_samples, num_timesteps, num_features) --> output: (num_samples, hidden_dim)
-
-Given time-series data with shape (N x 700) we need to reshape it to (N x 700 x 1). 
-Feeding it into an LSTM(200, return_sequences=True) results in an output of shape (N x 700 x 200) --> (num_samples, num_timesteps, num_channels)
-
-You apply a TimeDistributedDense, you're applying a Dense layer on each timestep, which means you're applying a Dense layer on each ℎ1, ℎ2,...,ℎ𝑡 respectively. 
-Which means: actually you're applying the fully-connected operation on each of its channels (the "200" one) respectively, from ℎ1 to ℎ700. The 1st "1×1×200" until the 700th "1×1×200".
-
-Why are we doing this? Because you don't want to flatten the RNN output.
-
-Why not flattening the RNN output? Because you want to keep each timestep values separate.
-
-Why keep each timestep values separate? Because:
-
-you're only want to interacting the values between its own timestep
-you don't want to have a random interaction between different timesteps and channels.
-
-RepeatVector: repeats output of previous layer a specified number of times
-TimeDistributed: applies a dense layer to every sample
-
 Return_sequences vs. Return_state: 
 LSTM(dim, return_sequences=True) --> returns hidden state for each time step
 LSTM(dim, return_state=True) --> returns LSTM hidden state output (twice) and LSTM cell state for the last time step
@@ -34,11 +15,19 @@ LSTM(dim, return_sequences=True, return_state=True) --> returns hidden state for
  - when stacking LSTMS return_sequences must be True
 """
 
-""" ENCODER - DECODER ARCHITECTURE """
+class PyramidLayer(keras.layers.Layer):
+  
+    def call(self, inputs):
+        
+        dim = inputs.shape[2]
+        tensor1 = tf.strided_slice(inputs, [0, 0, 0], [-1, -2, dim], strides=[1, 2, 1]) # batch size must be even
+        tensor2 = tf.strided_slice(inputs, [0, 1, 0], [-1, -1, dim], strides=[1, 2, 1])
+        concat = tf.concat([tensor1, tensor2], 2)
+        return concat
 
 class ListenAttendSpell():
 
-    def __init__(self, num_classes=26, max_sent_len=100, hidden_dim=256):
+    def __init__(self, num_classes=26, max_sent_len=100, hidden_dim=1):
 
         self.hidden_dim = hidden_dim
         self.num_classes = num_classes
@@ -48,7 +37,8 @@ class ListenAttendSpell():
         # if merge_mode = "concat" --> embed_h must be 2 * self.hidden_dim
         blstm = Bidirectional(LSTM(self.hidden_dim, return_sequences=True), merge_mode="ave", name=name)
         state_h = blstm(input_tensor)
-        # state_h = Concatenate()([state_h, state_h]) #### RESHAPE
+        if name != "encoder_output":
+            state_h = PyramidLayer()(state_h)
         return state_h
 
     def encoder(self, num_layers=3):
@@ -72,7 +62,7 @@ class ListenAttendSpell():
         encoder_output = Input(shape=(None, self.hidden_dim))
         embed = Embedding(self.num_classes, embed_dim, mask_zero=True, name="dec_embed")(decoder_input)
         embed_h = LSTM(self.hidden_dim, return_sequences=True, name="LSTM_embed")(embed)
-        # inputs: (batch_size, Tq, dim) and (batch_size, Tv, dim) || output: (batch_size, Tq, dim)
+        # inputs: (batch_size, Tq, dim) and (batch_size, Tv, dim) || output: (batch_size, Tq, dim
         attention = keras.layers.AdditiveAttention(name="attention")([embed_h, encoder_output])
 
         state_h = LSTM(self.hidden_dim, return_sequences=True, name="LSTM_attend")(attention)
@@ -81,6 +71,9 @@ class ListenAttendSpell():
         self.decoder_model = keras.models.Model(inputs=[decoder_input, encoder_output], outputs=decoder_output, name='Decoder')
     
     def build_model(self):
+
+        self.encoder()
+        self.decoder()
 
         input1 = Input(shape=(None, 1), name="input_1")
         encoder_output = self.encoder_model(input1)
